@@ -1,33 +1,49 @@
 # {{ ansible_managed }}
 
-server {
-  {% if item.value.ssl is defined and item.value.ssl.enabled | default(false) -%}
-  listen 443 ssl http2;
-  {% else -%}
-  listen 80;
-  {% endif %}
+{% block upstream %}
+{% if item.value.type is defined and item.value.type == 'docker' -%}
+upstream {{ item.key }} {
+  server localhost:{{ item.value.proxy_port }};
+  keepalive 32;
+}
+{% endif -%}
+{% endblock %}
 
-  server_name  {% for host in app_hosts_canonical %}{{ host }} {% endfor %};
+{% block before_server %}{% endblock %}
+
+server {
+  {% block server_listen %}
+  listen {{ ssl_enabled | ternary('[::]:443 ssl http2', '[::]:80') }};
+  listen {{ ssl_enabled | ternary('443 ssl http2', '80') }};
+  server_name {% for host in app_hosts_canonical %}{{ host }} {% endfor %};
+  {% endblock %}
+
+  {% block server_logfiles %}
   access_log   {{ webroot }}/{{ item.key }}/logs/access.log;
   error_log    {{ webroot }}/{{ item.key }}/logs/error.log;
+  {% endblock %}
 
+  {% block server_root %}
   root  {{ webroot }}/{{ item.key }}/{{ item.value.current_path | default('current') }}/{% if item.value.source is defined %}{{ item.value.source.public_dir | default('public') }}{% endif %};
   index index.php index.htm index.html;
-
   charset utf-8;
+  {% endblock %}
 
+  {% block server_auth_basic %}
   {% if app_uses_auth_basic -%}
     auth_basic           "Password Required";
     auth_basic_user_file {{ auth_basic_htpasswd_file }};
   {% endif %}
+  {% endblock %}
 
+  {% block server_dev %}
   {% if env == 'development' -%}
   # See Virtualbox section at http://wiki.nginx.org/Pitfalls
   sendfile off;
   {%- endif %}
+  {% endblock %}
 
-  add_header Fastcgi-Cache $upstream_cache_status;
-
+  {% block server_ssl %}
   {% if item.value.ssl is defined and item.value.ssl.enabled | default(false) -%}
     {{ lookup('template', 'https.conf.j2') }}
   {% endif %}
@@ -35,10 +51,15 @@ server {
   {% if item.value.ssl is not defined or not item.value.ssl.enabled | default(false) -%}
     include acme-challenge-location.conf;
   {% endif %}
+  {% endblock %}
 
+  {% block server_includes %}
   include includes.d/{{ item.key }}/*.conf;
+  {% endblock %}
 
+  {% block server_location %}
   {% if item.value.type is defined and item.value.type == 'spa' -%}
+  add_header Fastcgi-Cache $upstream_cache_status;
   include laravan.conf;
   location / {
     try_files $uri $uri/ /index.html;
@@ -78,13 +99,14 @@ server {
     include fastcgi_params;
     fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
     fastcgi_param DOCUMENT_ROOT $realpath_root;
-    fastcgi_pass unix:/var/run/php{{ app_php_version }}-fpm/laravan.sock;
+    fastcgi_pass unix:/var/run/php{{ app_php_version }}-laravan.sock;
     fastcgi_index index.php;
   }
   {% endif -%}
-
+  {% endblock %}
 }
 
+{% block plain_http_redirect %}
 {% if item.value.ssl is defined and item.value.ssl.enabled | default(false) %}
 server {
   listen 80;
@@ -102,7 +124,9 @@ server {
   {% endif -%}
 }
 {% endif %}
+{% endblock %}
 
+{% block hostname_redirect %}
 {% for host in item.value.hosts if host.redirects | default([]) %}
 server {
   {% if item.value.ssl is defined and item.value.ssl.enabled | default(false) -%}
@@ -126,3 +150,6 @@ server {
   {% endif %}
 }
 {% endfor %}
+{% endblock %}
+
+{% block after_server %}{% endblock %}

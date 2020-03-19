@@ -5,7 +5,7 @@
 Laravan is capable of preparing a fresh Ubuntu 16.04 / 18.04 machine for running laravel apps and docker containers by setting up the following components using Ansible:
 
 - Nginx
-- PHP 7.0, 7.1, 7.2 & 7.3
+- PHP 7.2, 7.3 & 7.4
 - MariaDB 10
 - PostgreSQL 11
 - Beanstalkd
@@ -24,17 +24,18 @@ This makes Laravan a viable alternative to paid tools like Forge or Envoyer. It 
 
 ## Table of Contents
 - [Getting Started](#getting-started)
-    - [1. Install Ansible](#1-install-ansible)
-    - [2. Prepare Server](#2-prepare-server)
-        - [Vagrant (optional)](#vagrant-optional)
-    - [3. Install Laravan](#3-install-laravan)
-    - [4. Link Machines](#4-link-machines)
-    - [5. Configure Applications](#5-configure-applications)
-    - [6. Configure Databases](#6-configure-databases)
-    - [7. Encrypt vault](#7-encrypt-vault)
-    - [8. Set ssh keys for web user](#8-set-ssh-keys-for-web-user)
-    - [9. Provision](#9-provision)
-    - [10. Deploy](#10-deploy)
+   - [1. Install Ansible](#1-install-ansible)
+   - [2. Prepare Server](#2-prepare-server)
+   - [3. Install Laravan](#3-install-laravan)
+   - [4. Link Machines](#4-link-machines)
+   - [5. Configure Applications](#5-configure-applications)
+   - [6. Configure Databases](#6-configure-databases)
+   - [7. Encrypt vault](#7-encrypt-vault)
+   - [8. Set ssh keys for web user](#8-set-ssh-keys-for-web-user)
+   - [9. Provision](#9-provision)
+   - [10. Deploy](#10-deploy)
+- [Using laravan in your CI/CD pipeline](#using-laravan-in-your-cicd-pipeline)
+   - [Using laravan with Gitlab Pipelines](#using-laravan-with-gitlab-pipelines)
 - [Credits](#credits)
 - [License](#license)
 
@@ -43,7 +44,7 @@ This makes Laravan a viable alternative to paid tools like Forge or Envoyer. It 
 Ansible needs to be installed on your **local machine** from which you're going to provision your servers and deploy your Laravel apps. Install instructions: [http://docs.ansible.com/ansible/latest/intro_installation.html](http://docs.ansible.com/ansible/latest/intro_installation.html)
 
 ### 2. Prepare Server
-Boot up a fresh Ubuntu 16.04 (virtual) machine. Set up ssh keys for the root user and make sure you can log in from your local machine.
+Boot up a fresh Ubuntu 18.04 machine. Set up ssh keys for the root user and make sure you can log in from your local machine.
 
 The target machine needs to have `python` (v2) installed in order to be provisioned by Ansible.
 
@@ -75,7 +76,7 @@ Open up `group_vars/{env}/apps.yml` and provide the necessary information for yo
 Open up `group_vars/{env}/databases.yml` and configure the databases required for your apps. There is an example under `group_vars/production/databases.yml` to get you started.
 
 ### 7. Encrypt vault
-In order to prevent your production secrets from ending up as plain text in your git repositories, use the [ansible vault](http://docs.ansible.com/ansible/2.4/vault.html).
+In order to prevent your production secrets from ending up as plain text in your git repositories, use the [ansible vault](http://docs.ansible.com/ansible/latest/vault.html).
 
 1. Create a `.vault_pass` file containing a strong password in the project root (eg. `openssl rand -base64 64 > .vault_pass`). This file is gitignored, which you should leave at all cost. Your coworkers who need to be able to provision/deploy as well, will need a copy of the file. *Send it to them by other (encrypted) means, but don't add it to your VCS!*
 2. Encrypt your vault: `ansible-vault encrypt group_vars/production/vault.yml`
@@ -104,6 +105,23 @@ ansible-playbook deploy.yml -e env=production -e app=myapp
 
 In case deployment fails with an error message indicating a lack of access right to the git repository, make sure that a local ssh key is authorized with the git remote of the app. There could also be a problem with with ssh agent-forwarding, which you can troubleshoot using this guide: [https://developer.github.com/v3/guides/using-ssh-agent-forwarding/](https://developer.github.com/v3/guides/using-ssh-agent-forwarding/).
 
+## Using laravan in your CI/CD pipeline
+In order to use laravan in your CI/CD pipeline, you have to:
+1. Give your CI server access to your laravan repository (with all its configuration in it)
+2. Make the `.vault_pass` available to your CI server
+3. Run the `deploy.yml` playbook in your pipeline in order to deploy the application
+
+### Using laravan with Gitlab Pipelines
+Take a look at [.gitlab-ci.yml.example](.gitlab-ci.yml.example) for an example configuration for Gitlab Pipelines. Make sure to replace all YOUR_xyz_GOES_HERE strings with your actual values.
+
+In order to make it work, configure the following environment variables in gitlab for the project you're deploying:
+- STAGING_DEPLOY_KEY: *an ssh private key that authorizes the `web` user on your staging system*
+- PRODUCTION_DEPLOY_KEY: *an ssh private key that authorizes the `web` user on your production system*
+- VAULT_PASS: *The vault password to decrypt the ansible vault*
+
+Besides that, make sure:
+- the respective "DEPLOY_KEYs" are allowed read access on your application repository and the laravan repository (set them up as deploy keys in the respective Gitlab project)
+- in your `apps.yml` configuration under `source`, set `version: "{{ lookup('env', 'VERSION') }}"` in order to deploy the git revision for which the pipeline is running. Otherwise it would default to master and possibly deploy the wrong version.
 
 ## Credits
 Credits to the awesome [Trellis](https://github.com/roots/trellis) project, which heavily inspired me to create Laravan and from which i copied some code and concepts.
